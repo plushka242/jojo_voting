@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JOJO — Голосование</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#08070b;color:#fff;font-family:Arial,sans-serif;min-height:100vh;overflow-x:hidden}
+body:before{content:"";position:fixed;inset:0;background:radial-gradient(ellipse at top,#35204b 0%,#100d16 45%,#050507 100%);z-index:-2}
+#background{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:-1}
+.letter{position:absolute;bottom:-80px;color:#c9a34c22;font-size:60px;font-weight:bold;animation:floatUp linear infinite}
+@keyframes floatUp{from{transform:translateY(0) rotate(0deg);opacity:0}15%{opacity:1}to{transform:translateY(-120vh) rotate(200deg);opacity:0}}
+main{width:min(700px,92%);margin:auto;padding:45px 0 60px}
+header{text-align:center;margin-bottom:28px}
+.logo{color:#d8b35a;font-size:14px;letter-spacing:5px}
+h1{font-size:clamp(30px,8vw,52px);line-height:1.1;margin:18px 0;color:#f4d47c;text-shadow:0 0 20px #c99a4833}
+.subtitle{color:#c6b8d3;line-height:1.6}
+.panel{background:#100d16dd;border:1px solid #8f6dba66;border-radius:18px;padding:22px;box-shadow:0 0 35px #6e35a51c}
+button{border:0;border-radius:10px;padding:15px 20px;font-weight:bold;font-size:15px;cursor:pointer}
+.primary{width:100%;background:linear-gradient(100deg,#d8b35a,#f5dc92);color:#160f08;margin-top:18px}
+.primary:disabled{opacity:.5;cursor:not-allowed}
+.secondary{background:#261b34;color:#fff;border:1px solid #8c63b6}
+.page{display:none}
+.page.active{display:block}
+.option{display:flex;align-items:center;gap:12px;padding:14px;margin:10px 0;border:1px solid #ffffff20;border-radius:12px;background:#ffffff05;cursor:pointer;transition:.2s}
+.option:has(input:checked){border-color:#d8b35a;background:#d8b35a12}
+.option input{accent-color:#d8b35a;width:18px;height:18px}
+.name{flex:1;font-weight:bold}
+.count{color:#d8b35a;font-size:13px;white-space:nowrap}
+.note{font-size:13px;color:#ad9ebd;line-height:1.5}
+.status{margin-top:14px;text-align:center;color:#e7cd86;line-height:1.5}
+footer{text-align:center;margin-top:24px;color:#887b94;font-size:12px}
+</style>
+</head>
+<body>
+<div id="background"></div>
+<main>
+<header>
+<div class="logo">JOJO FAN PROJECT</div>
+<h1>ГОЛОСОВАНИЕ<br>ЗА СИЛЬНЕЙШЕГО</h1>
+<div class="subtitle">Кто достоин звания сильнейшего персонажа JoJo?<br>Решают фанаты!</div>
+</header>
+
+<section id="home" class="page active">
+<div class="panel">
+<h2>Выбери своего чемпиона</h2>
+<p class="subtitle">Голосуй за любимого персонажа и следи за результатами сообщества.</p>
+<button class="primary" onclick="showPage('vote')">ПРОГОЛОСОВАТЬ</button>
+</div>
+</section>
+
+<section id="vote" class="page">
+<div class="panel">
+<button class="secondary" onclick="showPage('home')">← Назад</button>
+<h2>Выбери персонажа</h2>
+<p class="note">Можно выбрать только одного персонажа.</p>
+<div id="options">Загружаем результаты...</div>
+<button id="submit" class="primary" onclick="submitVote()">ПОДТВЕРДИТЬ ГОЛОС</button>
+<div id="status" class="status"></div>
+</div>
+</section>
+
+<section id="results" class="page">
+<div class="panel">
+<h2>Результаты голосования</h2>
+<div id="finalResults"></div>
+<button class="primary" onclick="showPage('vote')">ВЕРНУТЬСЯ К ГОЛОСОВАНИЮ</button>
+</div>
+</section>
+<footer>Неофициальный фанатский проект по JoJo's Bizarre Adventure</footer>
+</main>
+
+<script>
+const characters=["Джотаро","Джоске","Джонатан","Джозеф","Джонни","Джоске 8","Джорно","Джодио","Джолин"];
+let selected="";
+let alreadyVoted=false;
+let counts={};
+const SUPABASE_URL="https://qvafftekobhkxebvjmms.supabase.co";
+const SUPABASE_KEY="sb_publishable_kAjHMtguUKu5rzxk1lGhHw_rXwpcN_S";
+let db=null;
+
+try{
+ if(window.supabase && SUPABASE_URL.startsWith("https://") && !SUPABASE_KEY.includes("ВСТАВЬ")){
+  db=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+ }
+}catch(e){console.error(e)}
+
+const savedIdKey="jojo_voter_id";
+let voterId=localStorage.getItem(savedIdKey);
+if(!voterId){
+ voterId=window.crypto&&crypto.randomUUID?crypto.randomUUID():"jojo-"+Date.now()+"-"+Math.random().toString(36).slice(2);
+ localStorage.setItem(savedIdKey,voterId);
+}
+alreadyVoted=localStorage.getItem("jojo_already_voted")==="yes";
+
+const bg=document.getElementById("background");
+for(let i=0;i<18;i++){
+ const el=document.createElement("div");
+ el.className="letter";el.textContent="J";
+ el.style.left=Math.random()*100+"%";
+ el.style.animationDuration=(10+Math.random()*18)+"s";
+ el.style.animationDelay=(-Math.random()*20)+"s";
+ el.style.fontSize=(25+Math.random()*65)+"px";
+ bg.appendChild(el);
+}
+
+function showPage(id){
+ document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+ document.getElementById(id).classList.add("active");
+ if(id==="vote"){drawOptions();loadResults();}
+ if(id==="results")drawFinalResults();
+ window.scrollTo(0,0);
+}
+
+function drawOptions(){
+ const box=document.getElementById("options");
+ box.innerHTML="";
+ characters.forEach(name=>{
+  const row=document.createElement("label");
+  row.className="option";
+  const radio=document.createElement("input");
+  radio.type="radio";radio.name="character";radio.value=name;
+  radio.checked=selected===name;
+  radio.addEventListener("change",()=>selected=name);
+  const title=document.createElement("span");title.className="name";title.textContent=name;
+  const count=document.createElement("span");count.className="count";
+  count.textContent=(counts[name]||0)+" голосов";
+  row.append(radio,title,count);box.appendChild(row);
+ });
+ document.getElementById("submit").disabled=alreadyVoted;
+ if(alreadyVoted)document.getElementById("status").textContent="С этого браузера голос уже отправлен.";
+}
+
+async function loadResults(){
+ if(!db){
+  document.getElementById("status").textContent="Сначала подключим Supabase, чтобы загружать общие результаты.";
+  return;
+ }
+ const {data,error}=await db.rpc("get_jojo_results");
+ if(error){document.getElementById("status").textContent="Не удалось загрузить результаты. Проверь подключение.";console.error(error);return;}
+ counts={};
+ data.forEach(row=>counts[row.character_name]=Number(row.votes));
+ drawOptions();
+}
+
+async function submitVote(){
+ if(alreadyVoted){document.getElementById("status").textContent="Ты уже голосовал в этом браузере.";return;}
+ if(!selected){document.getElementById("status").textContent="Сначала выбери персонажа!";return;}
+ if(!db){document.getElementById("status").textContent="Подключение к базе ещё не настроено.";return;}
+ const button=document.getElementById("submit");
+ button.disabled=true;
+ document.getElementById("status").textContent="Отправляем голос...";
+ const {data,error}=await db.rpc("submit_jojo_vote",{p_character:selected,p_voter_id:voterId});
+ if(error){document.getElementById("status").textContent="Ошибка отправки. Проверь подключение.";button.disabled=false;console.error(error);return;}
+ if(data!==true){
+  alreadyVoted=true;localStorage.setItem("jojo_already_voted","yes");
+  document.getElementById("status").textContent="Этот идентификатор уже использовал голос.";
+  drawOptions();return;
+ }
+ alreadyVoted=true;localStorage.setItem("jojo_already_voted","yes");
+ document.getElementById("status").textContent="Голос за "+selected+" учтён!";
+ await loadResults();
+ drawOptions();
+}
+
+function drawFinalResults(){
+ const box=document.getElementById("finalResults");
+ box.innerHTML="";
+ const sorted=characters.slice().sort((a,b)=>(counts[b]||0)-(counts[a]||0));
+ sorted.forEach((name,i)=>{
+  const row=document.createElement("div");row.className="option";
+  const title=document.createElement("span");title.className="name";title.textContent=(i+1)+". "+name;
+  const count=document.createElement("span");count.className="count";count.textContent=(counts[name]||0)+" голосов";
+  row.append(title,count);box.appendChild(row);
+ });
+}
+</script>
+</body>
+  </html>
